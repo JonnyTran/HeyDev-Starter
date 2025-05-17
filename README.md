@@ -43,13 +43,16 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -e .
+poetry lock && poetry install
+
+# Run FastAPI backend
+poetry run demo
 ```
 
 3. **Setup the frontend**
 
 ```bash
-cd ../src
+# Repo root
 npm install
 ```
 
@@ -70,17 +73,6 @@ POSTGRESQL_URL=postgresql://username:password@localhost:5432/heydev_db
 # Server Port
 PORT=8000
 ```
-
-5. **Setup the database**
-
-Create a PostgreSQL database for the application:
-
-```bash
-# Replace with your database credentials
-psql -U postgres -c "CREATE DATABASE heydev_db;"
-```
-
-The necessary tables will be created automatically when you first run the application.
 
 ## Running the Application
 

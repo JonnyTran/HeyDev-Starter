@@ -1,6 +1,5 @@
 """
-This serves the "sample_agent" agent. This is an example of self-hosting an agent
-through our FastAPI integration. However, you can also host in LangGraph platform.
+This serves the DevRel Publisher agent through FastAPI integration.
 """
 
 import os
@@ -12,15 +11,19 @@ import uvicorn
 from copilotkit.integrations.fastapi import add_fastapi_endpoint
 from copilotkit import CopilotKitRemoteEndpoint
 from copilotkit.crewai import CrewAIAgent
-from sample_agent.agent import SampleAgentFlow
+from sample_agent.agent import DevRelPublisherFlow
+from sample_agent.db import setup_database
+
+# Initialize database tables
+setup_database()
 
 app = FastAPI()
 sdk = CopilotKitRemoteEndpoint(
     agents=[
         CrewAIAgent(
-            name="sample_agent",
-            description="An example agent to use as a starting point for your own agent.",
-            flow=SampleAgentFlow(),
+            name="devrel_publisher",
+            description="An agent that analyzes GitHub repos and generates DevRel content.",
+            flow=DevRelPublisherFlow(),
         )
     ],
 )
@@ -36,3 +39,6 @@ def main():
         port=port,
         reload=True,
     )
+
+if __name__ == "__main__":
+    main()

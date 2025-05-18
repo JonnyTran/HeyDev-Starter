@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "devrel_publisher"
+name = "sample_agent"
 version = "0.1.0"
 description = "Starter"
 authors = ["Markus Ecker <markus.ecker@gmail.com>"]
 license = "MIT"
 
 [project]
-name = "devrel_publisher"
+name = "sample_agent"
 version = "0.0.1"
 dependencies = [
     "langchain-openai",
@@ -42,4 +42,4 @@ crewai = "0.118.0"
 copilotkit = "0.1.46"
 
 [tool.poetry.scripts]
-demo = "devrel_publisher.demo:main"
+demo = "sample_agent.demo:main"

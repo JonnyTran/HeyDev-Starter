@@ -14,7 +14,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <CopilotKit 
       runtimeUrl={runtimeUrl}
       publicApiKey={publicApiKey}
-      agent={agentName}
+      agent={"devrel_publisher"}
     >
       {children}
     </CopilotKit>

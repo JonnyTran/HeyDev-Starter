@@ -21,7 +21,7 @@ app = FastAPI()
 sdk = CopilotKitRemoteEndpoint(
     agents=[
         CrewAIAgent(
-            name="devrel_publisher",
+            name="sample_agent",
             description="An agent that analyzes GitHub repos and generates DevRel content.",
             flow=DevRelPublisherFlow(),
         )

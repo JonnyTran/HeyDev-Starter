@@ -32,13 +32,19 @@ add_fastapi_endpoint(app, sdk, "/copilotkit")
 
 def main():
     """Run the uvicorn server."""
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(
-        "sample_agent.demo:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True,
-    )
-
+    try:
+        port = int(os.getenv("PORT", "8000"))
+        print(f"Starting server on port {port}")
+        uvicorn.run(
+            "sample_agent.demo:app",
+            host="0.0.0.0",
+            port=port,
+            reload=True,
+        )
+    except Exception as e:
+        print(f"Server startup error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
 if __name__ == "__main__":
     main()

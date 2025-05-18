@@ -11,13 +11,28 @@ import uvicorn
 from copilotkit.integrations.fastapi import add_fastapi_endpoint
 from copilotkit import CopilotKitRemoteEndpoint
 from copilotkit.crewai import CrewAIAgent
-from sample_agent.agent import DevRelPublisherFlow
-from sample_agent.db import setup_database
+from devrel_publisher.agent import DevRelPublisherFlow
+from devrel_publisher.db import setup_database
+
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # Initialize database tables
 setup_database()
 
 app = FastAPI()
+origins = [
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 sdk = CopilotKitRemoteEndpoint(
     agents=[
         CrewAIAgent(
@@ -34,7 +49,7 @@ def main():
     """Run the uvicorn server."""
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(
-        "sample_agent.demo:app",
+        "devrel_publisher.demo:app",
         host="0.0.0.0",
         port=port,
         reload=True,

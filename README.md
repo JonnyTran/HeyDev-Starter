@@ -29,10 +29,6 @@ The system is built using:
 
 1. **Clone the repository**
 
-```bash
-git clone https://github.com/yourusername/heydev.git
-cd heydev
-```
 
 2. **Setup the backend**
 
@@ -74,19 +70,7 @@ POSTGRESQL_URL=postgresql://username:password@localhost:5432/heydev_db
 PORT=8000
 ```
 
-## Running the Application
-
-1. **Start the backend server**
-
 ```bash
-cd agent
-python -m sample_agent.demo
-```
-
-2. **Start the frontend development server**
-
-```bash
-cd src
 npm run dev
 ```
 
@@ -112,7 +96,3 @@ Run the integration tests:
 cd agent
 python -m unittest tests.integration
 ```
-
-## License
-
-MIT

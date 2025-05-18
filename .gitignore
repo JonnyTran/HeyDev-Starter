@@ -40,3 +40,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 crewai_predictive_state_updates
+*.egg-info

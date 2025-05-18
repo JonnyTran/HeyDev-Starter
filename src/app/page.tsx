@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { CopilotKit, useCopilotAction, useCoAgent } from "@copilotkit/react-core";
-import { CopilotSidebar } from "@copilotkit/react-ui";
+import { useState, useEffect } from "react";
+import { useCopilotAction, useCoAgent } from "@copilotkit/react-core";
 import { Markdown } from "@copilotkit/react-ui";
+import dynamic from 'next/dynamic';
+
+// Dynamic import for the CopilotSidebar to avoid hydration issues
+const CopilotSidebar = dynamic(
+  () => import('@copilotkit/react-ui').then((mod) => mod.CopilotSidebar),
+  { ssr: false } // Disable server-side rendering for this component
+);
 
 // DevRelAgentState interface matching our Python state
 interface DevRelAgentState {
@@ -31,25 +37,39 @@ interface DevRelAgentState {
   };
   status?: string;
   error?: string;
+  copilotkit?: {
+    actions?: any[];
+    metadata?: Record<string, any>;
+  };
+  messages?: any[];
 }
 
 export default function Home() {
+  // Add a state to track client-side rendering
+  const [isClient, setIsClient] = useState(false);
+  
+  // Set isClient to true when component mounts on the client
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
+  // Only render the sidebar component on the client
+  if (!isClient) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>;
+  }
+  
   return (
-    <CopilotKit
-      agent="devrel_publisher"
-    >
-      <div className="min-h-screen bg-gray-50">
-        <CopilotSidebar
-          defaultOpen={true}
-          labels={{
-            title: "DevRel Publisher",
-            initial: "I'm your DevRel content publishing assistant. I can help you generate content based on your GitHub repository changes.",
-          }}
-        >
-          <DevRelPublisher />
-        </CopilotSidebar>
-      </div>
-    </CopilotKit>
+    <div className="min-h-screen bg-gray-50">
+      <CopilotSidebar
+        defaultOpen={true}
+        labels={{
+          title: "DevRel Publisher",
+          initial: "I'm your DevRel content publishing assistant. I can help you generate content based on your GitHub repository changes.",
+        }}
+      >
+        <DevRelPublisher />
+      </CopilotSidebar>
+    </div>
   );
 }
 
@@ -93,11 +113,11 @@ function DevRelPublisher() {
           placeholder="https://github.com/owner/repo"
           className="w-full p-2 border rounded mb-4"
           value={state?.repo_url || ""}
-          onChange={(e) => setState({ ...state, repo_url: e.target.value })}
+          onChange={(e) => setState && setState({ ...state, repo_url: e.target.value })}
         />
         <div className="flex gap-2">
           <button
-            onClick={() => respond(state?.repo_url)}
+            onClick={() => respond && respond(state?.repo_url)}
             disabled={status !== "executing"}
             className="bg-blue-500 text-white px-4 py-2 rounded disabled:bg-blue-300"
           >
@@ -125,11 +145,11 @@ function DevRelPublisher() {
           type="date"
           className="w-full p-2 border rounded mb-4"
           value={state?.start_date || ""}
-          onChange={(e) => setState({ ...state, start_date: e.target.value })}
+          onChange={(e) => setState && setState({ ...state, start_date: e.target.value })}
         />
         <div className="flex gap-2">
           <button
-            onClick={() => respond(state?.start_date)}
+            onClick={() => respond && respond(state?.start_date)}
             disabled={status !== "executing"}
             className="bg-blue-500 text-white px-4 py-2 rounded disabled:bg-blue-300"
           >
@@ -162,8 +182,8 @@ function DevRelPublisher() {
               }`}
               onClick={() => {
                 const newState = { ...state, selected_topic: topic };
-                setState(newState);
-                respond(idx);
+                setState && setState(newState);
+                respond && respond(idx);
               }}
             >
               <h3 className="font-bold">{topic.title}</h3>
@@ -201,7 +221,7 @@ function DevRelPublisher() {
             <select
               className="w-full p-2 border rounded"
               value={state?.content_record?.channel || ""}
-              onChange={(e) => setState({
+              onChange={(e) => setState && setState({
                 ...state,
                 content_record: {
                   ...state.content_record,
@@ -224,7 +244,7 @@ function DevRelPublisher() {
               type="text"
               className="w-full p-2 border rounded"
               value={state?.content_record?.title || ""}
-              onChange={(e) => setState({
+              onChange={(e) => setState && setState({
                 ...state,
                 content_record: {
                   ...state.content_record,
@@ -241,7 +261,7 @@ function DevRelPublisher() {
               className="w-full p-2 border rounded"
               rows={3}
               value={state?.content_record?.summary || ""}
-              onChange={(e) => setState({
+              onChange={(e) => setState && setState({
                 ...state,
                 content_record: {
                   ...state.content_record,
@@ -258,7 +278,7 @@ function DevRelPublisher() {
               className="w-full p-2 border rounded"
               rows={10}
               value={state?.content_record?.content || ""}
-              onChange={(e) => setState({
+              onChange={(e) => setState && setState({
                 ...state,
                 content_record: {
                   ...state.content_record,
@@ -274,7 +294,7 @@ function DevRelPublisher() {
             <select
               className="w-full p-2 border rounded"
               value={state?.content_record?.type || ""}
-              onChange={(e) => setState({
+              onChange={(e) => setState && setState({
                 ...state,
                 content_record: {
                   ...state.content_record,
@@ -293,7 +313,7 @@ function DevRelPublisher() {
         {/* Buttons */}
         <div className="flex justify-end gap-2 mt-6">
           <button
-            onClick={() => respond("CANCEL")}
+            onClick={() => respond && respond("CANCEL")}
             disabled={status !== "executing"}
             className="border px-4 py-2 rounded text-gray-700 disabled:opacity-50"
           >
@@ -301,14 +321,16 @@ function DevRelPublisher() {
           </button>
           <button
             onClick={() => {
-              setState({
-                ...state,
-                copilotkit: {
-                  ...state.copilotkit,
-                  metadata: { ...state.copilotkit?.metadata, confirmed: true }
-                }
-              });
-              respond("CONFIRM");
+              if (setState && state) {
+                setState({
+                  ...state,
+                  copilotkit: {
+                    ...state.copilotkit,
+                    metadata: { ...(state.copilotkit?.metadata || {}), confirmed: true }
+                  }
+                });
+              }
+              respond && respond("CONFIRM");
             }}
             disabled={status !== "executing"}
             className="bg-blue-500 text-white px-4 py-2 rounded disabled:opacity-50"

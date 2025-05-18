@@ -494,7 +494,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         """
         try:
             # Use the database helper module to insert content
-            from sample_agent.db import insert_content
+            from devrel_publisher.db import insert_content
             
             # Insert the content record and get the ID
             content_id = insert_content(self.state.content_record)

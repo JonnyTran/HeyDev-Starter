@@ -1,6 +1,6 @@
 "use client";
 
-import { useCoAgent, useCopilotAction } from "@copilotkit/react-core";
+import { useCoAgent, useCopilotAction, useCoAgentStateRender } from "@copilotkit/react-core";
 import { CopilotKitCSSProperties, CopilotSidebar } from "@copilotkit/react-ui";
 import { useState } from "react";
 
@@ -28,35 +28,55 @@ export default function CopilotKitPage() {
         defaultOpen={true}
         labels={{
           title: "Popup Assistant",
-          initial: "👋 Hi, there! You're chatting with an agent. This agent comes with a few tools to get you started.\n\nFor example you can try:\n- **Frontend Tools**: \"Set the theme to orange\"\n- **Shared State**: \"Write a proverb about AI\"\n- **Generative UI**: \"Get the weather in SF\"\n\nAs you interact with the agent, you'll see the UI update in real-time to reflect the agent's **state**, **tool calls**, and **progress**."
+          initial: "👋 Hi, there! You're chatting with an agent."
         }}
       />
     </main>
   );
 }
 
-// State of the agent, make sure this aligns with your agent's state.
+// Define the state of the agent, should match the state of the agent in your LangGraph.
+type ContentRecord = {
+  channel: string;
+  title: string;
+  summary: string;
+  content: string;
+  type: string;
+  id?: string;
+};
+
 type AgentState = {
-  proverbs: string[];
-}
+  content_record?: ContentRecord;
+  status?: string;
+  error?: string;
+};
 
 function YourMainContent({ themeColor }: { themeColor: string }) {
-  // 🪁 Shared State: https://docs.copilotkit.ai/coagents/shared-state
-  const {state, setState} = useCoAgent<AgentState>({
+  // Render the agent's state in the chat using useCoAgentStateRender
+  useCoAgentStateRender<AgentState>({
     name: "sample_agent",
-  })
-
-  //🪁 Generative UI: https://docs.copilotkit.ai/coagents/generative-ui
-  useCopilotAction({
-    name: "getWeather",
-    description: "Get the weather for a given location.",
-    available: "disabled",
-    parameters: [
-      { name: "location", type: "string", required: true },
-    ],
-    render: ({ args }) => {
-      return <WeatherCard location={args.location} themeColor={themeColor} />
-    },
+    render: ({ state }) => (
+      <div className="w-full flex flex-col items-center mt-8">
+        {state?.status && (
+          <div className="mb-2 text-blue-600 font-semibold">{state.status}</div>
+        )}
+        {state?.error && (
+          <div className="mb-2 text-red-600 font-semibold">{state.error}</div>
+        )}
+        {state?.content_record && (
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-xl w-full">
+            <h2 className="text-xl font-bold mb-2">{state.content_record.title}</h2>
+            <div className="mb-2 text-gray-600">{state.content_record.summary}</div>
+            <div className="prose prose-sm max-w-none" style={{ whiteSpace: "pre-wrap" }}>
+              {state.content_record.content}
+            </div>
+            <div className="mt-4 text-sm text-gray-400">
+              Channel: {state.content_record.channel} | Type: {state.content_record.type}
+            </div>
+          </div>
+        )}
+      </div>
+    ),
   });
 
   return (
@@ -64,8 +84,7 @@ function YourMainContent({ themeColor }: { themeColor: string }) {
       style={{ backgroundColor: themeColor }}
       className="h-screen w-screen flex justify-center items-center flex-col transition-colors duration-300"
     >
-
-      hi :)
+      <span className="text-white text-lg font-semibold">DevRel Publishing Agent</span>
     </div>
   );
 }

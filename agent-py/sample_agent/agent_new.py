@@ -15,16 +15,21 @@ import requests
 from dotenv import load_dotenv
 from litellm import completion
 from crewai.flow.flow import Flow, start, router, listen
+import logging
 
 from copilotkit.crewai import (
     copilotkit_stream, 
     copilotkit_predict_state,
     copilotkit_emit_state,
+    copilotkit_exit,
     CopilotKitState
 )
 
 # Load environment variables
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("DevRelPublisherFlow")
 
 # Tools definition
 GITHUB_API_TOOL = {
@@ -156,7 +161,6 @@ class DevRelAgentState(CopilotKitState):
     start_date: str = ""
     
     # Analysis Data
-    commits: List[Dict] = []
     issues: List[Dict] = []
     pull_requests: List[Dict] = []
     docs_changes: List[Dict] = []
@@ -193,107 +197,84 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
     
     @start()
     async def input_github_repo(self):
+        logger.info("Entered input_github_repo")
         """Entry point: Collect GitHub repository URL."""
         # This node will be called first and waits for user input
         # The state will be updated directly from frontend actions
     
     @router(input_github_repo)
     async def select_date_range(self):
+        logger.info("Entered select_date_range")
         """Set hardcoded repository URL and date range."""
         # Hardcode the repository URL and start date
         self.state.repo_url = "https://github.com/crewaiinc/crewai"
-        self.state.start_date = "2023-01-01"
+        self.state.start_date = "2025-01-01"
         
         # Always proceed to analyze repository
         return "analyze_repository"
     
     @router(select_date_range)
     async def analyze_repository(self):
-        """
-        Analyze the GitHub repository data after the start date.
-        Fetches commits, issues, PRs, and documentation changes.
-        """
-        system_prompt = """
-        You are a DevRel content expert analyzing a GitHub repository.
-        Your job is to fetch and analyze the repository data since a specific date.
-        """
-        
+        logger.info("Entered analyze_repository")
         try:
-            # Extract owner and repo from URL
             owner, repo = extract_repo_info(self.state.repo_url)
-            
-            # Emit state update to show progress
+            await copilotkit_emit_state({"status": "Fetching pull requests..."})
+            # Fetch pull requests only
+            prs_endpoint = f"repos/{owner}/{repo}/pulls"
+            prs_params = {"state": "all", "sort": "created", "direction": "desc"}
+            all_prs = github_api_request(prs_endpoint, prs_params)
+            self.state.pull_requests = [
+                {
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "body": pr.get("body", ""),
+                    "created_at": pr["created_at"],
+                    "user": pr["user"]["login"]
+                }
+                for pr in all_prs
+                if datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ") >= datetime.strptime(self.state.start_date, "%Y-%m-%d")
+            ]
             await copilotkit_emit_state({
-                "status": "Analyzing repository..."
+                "status": f"Found {len(self.state.pull_requests)} pull requests after {self.state.start_date}"
             })
-            
-            # Fetch commits
-            commits_endpoint = f"repos/{owner}/{repo}/commits"
-            commits_params = {"since": f"{self.state.start_date}T00:00:00Z"}
-            self.state.commits = github_api_request(commits_endpoint, commits_params)
-            
-            # Emit progress update
-            await copilotkit_emit_state({
-                "status": f"Found {len(self.state.commits)} commits"
-            })
-            
+
             # Fetch issues
             issues_endpoint = f"repos/{owner}/{repo}/issues"
             issues_params = {"state": "all", "since": f"{self.state.start_date}T00:00:00Z"}
             self.state.issues = github_api_request(issues_endpoint, issues_params)
-            
             await copilotkit_emit_state({
                 "status": f"Found {len(self.state.issues)} issues"
             })
-            
-            # Fetch pull requests
-            prs_endpoint = f"repos/{owner}/{repo}/pulls"
-            prs_params = {"state": "all"}
-            self.state.pull_requests = [
-                pr for pr in github_api_request(prs_endpoint, prs_params)
-                if datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ") >= datetime.strptime(self.state.start_date, "%Y-%m-%d")
-            ]
-            
-            await copilotkit_emit_state({
-                "status": f"Found {len(self.state.pull_requests)} pull requests"
-            })
-            
-            # Check for documentation changes
+
+            # Fetch documentation changes (from PRs)
             docs_changes = []
-            for commit in self.state.commits:
-                commit_endpoint = f"repos/{owner}/{repo}/commits/{commit['sha']}"
-                commit_data = github_api_request(commit_endpoint)
-                
-                if "files" in commit_data:
-                    doc_files = [f for f in commit_data["files"] 
-                               if f["filename"].endswith((".md", ".mdx", ".txt", "CHANGELOG", "README"))]
-                    if doc_files:
-                        docs_changes.append({
-                            "commit": commit,
-                            "doc_files": doc_files
-                        })
-            
+            for pr in self.state.pull_requests:
+                # For each PR, fetch the files changed
+                pr_files_endpoint = f"repos/{owner}/{repo}/pulls/{pr['number']}/files"
+                pr_files = github_api_request(pr_files_endpoint)
+                doc_files = [f for f in pr_files if f["filename"].endswith(("CHANGELOG"))]
+                if doc_files:
+                    docs_changes.append({
+                        "pr": pr,
+                        "doc_files": doc_files
+                    })
             self.state.docs_changes = docs_changes
-            
             await copilotkit_emit_state({
                 "status": f"Found {len(self.state.docs_changes)} documentation changes"
             })
-            
+
             # If we have data, proceed to generate topics
-            if (self.state.commits or self.state.issues or 
-                self.state.pull_requests or self.state.docs_changes):
+            if (self.state.pull_requests or self.state.issues or self.state.docs_changes):
                 return "generate_topics"
-            
-            # If no data found, go back to input
             return "input_github_repo"
-            
         except Exception as e:
-            # Handle errors
             self.state.error = str(e)
+            raise e
             return "input_github_repo"
     
     @router(analyze_repository)
     async def generate_topics(self):
+        logger.info("Entered generate_topics")
         """
         Generate content topics based on repository analysis.
         Uses the AI to identify potential topics from the repository data.
@@ -329,12 +310,6 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                     {"role": "user", "content": f"""
                         Here's the GitHub repository data to analyze:
                         
-                        Commits: {json.dumps([{
-                            "sha": c["sha"],
-                            "message": c["commit"]["message"],
-                            "date": c["commit"]["author"]["date"]
-                        } for c in self.state.commits[:10]])}
-                        
                         Issues: {json.dumps([{
                             "number": i["number"],
                             "title": i["title"],
@@ -345,12 +320,11 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                         Pull Requests: {json.dumps([{
                             "number": p["number"],
                             "title": p["title"],
-                            "state": p["state"],
+                            "state": p.get("state", "unknown"),
                             "created_at": p["created_at"]
                         } for p in self.state.pull_requests[:10]])}
                         
                         Doc Changes: {json.dumps([{
-                            "commit_message": d["commit"]["commit"]["message"],
                             "files": [f["filename"] for f in d["doc_files"]]
                         } for d in self.state.docs_changes[:10]])}
                         
@@ -363,6 +337,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         )
         
         message = response.choices[0].message
+        message = sanitize_tool_call_arguments(message)
         self.state.messages.append(message)
         
         # Process tool calls to extract topics
@@ -370,28 +345,22 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             for tool_call in message.get("tool_calls", []):
                 if tool_call["function"]["name"] == "generate_topic":
                     try:
-                        # Get raw arguments string
                         arguments_str = tool_call["function"]["arguments"]
-                        
-                        # Try to parse the arguments directly first
                         try:
                             topic_data = json.loads(arguments_str)
                         except json.JSONDecodeError:
-                            # Clean up potentially malformed JSON - find the first '{' and last '}'
-                            start = arguments_str.find('{')
-                            end = arguments_str.rfind('}') + 1
-                            
-                            if start != -1 and end > start:
-                                # Extract valid JSON object
-                                clean_json = arguments_str[start:end]
+                            # Use regex to extract the first {...} block
+                            import re
+                            match = re.search(r'\{.*?\}', arguments_str, re.DOTALL)
+                            if match:
+                                clean_json = match.group(0)
                                 topic_data = json.loads(clean_json)
                             else:
-                                # Fallback if we can't extract valid JSON
                                 print(f"Warning: Could not extract valid JSON from: {arguments_str}")
                                 continue
-                                
                         self.state.topics.append(topic_data)
                     except Exception as e:
+                        raise e
                         print(f"Error processing tool call: {e}")
         
         # If we have topics, proceed to content generation directly
@@ -403,6 +372,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
     
     @router(generate_topics)
     async def generate_content_drafts(self):
+        logger.info("Entered generate_content_drafts")
         """
         Generate content drafts based on the first topic.
         Creates drafts for blog posts, code examples, and social media.
@@ -435,8 +405,8 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             self.state.selected_topic = {
                 "title": "Recent Repository Updates",
                 "description": "Overview of recent changes in the repository",
-                "source_type": "commit",
-                "source_id": self.state.commits[0]["sha"] if self.state.commits else "",
+                "source_type": "pull_request",
+                "source_id": self.state.pull_requests[0]["number"] if self.state.pull_requests else "",
                 "content_types": ["blog_post"]
             }
             await copilotkit_emit_state({
@@ -451,9 +421,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         source_type = self.state.selected_topic.get("source_type")
         source_id = self.state.selected_topic.get("source_id")
         
-        if source_type == "commit" and self.state.commits:
-            context = next((c for c in self.state.commits if c["sha"] == source_id), self.state.commits[0])
-        elif source_type == "issue" and self.state.issues:
+        if source_type == "issue" and self.state.issues:
             context = next((i for i in self.state.issues if str(i["number"]) == source_id), self.state.issues[0] if self.state.issues else {})
         elif source_type == "pull_request" and self.state.pull_requests:
             context = next((p for p in self.state.pull_requests if str(p["number"]) == source_id), self.state.pull_requests[0] if self.state.pull_requests else {})
@@ -481,6 +449,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         )
         
         message = response.choices[0].message
+        message = sanitize_tool_call_arguments(message)
         self.state.messages.append(message)
         
         # Process tool calls to extract content
@@ -490,26 +459,19 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                     try:
                         # Get raw arguments string
                         arguments_str = tool_call["function"]["arguments"]
-                        
-                        # Try to parse the arguments directly first
                         try:
                             content_data = json.loads(arguments_str)
                         except json.JSONDecodeError:
-                            # Clean up potentially malformed JSON
-                            start = arguments_str.find('{')
-                            end = arguments_str.rfind('}') + 1
-                            
-                            if start != -1 and end > start:
-                                # Extract valid JSON object
-                                clean_json = arguments_str[start:end]
+                            # Use regex to extract the first {...} block
+                            import re
+                            match = re.search(r'\{.*?\}', arguments_str, re.DOTALL)
+                            if match:
+                                clean_json = match.group(0)
                                 content_data = json.loads(clean_json)
                             else:
-                                # Fallback if we can't extract valid JSON
                                 print(f"Warning: Could not extract valid JSON from: {arguments_str}")
                                 continue
-                        
                         self.state.content_drafts[content_type] = content_data.get("content", "")
-                        
                         # Also save to content record
                         self.state.content_record = {
                             "channel": content_type,
@@ -520,12 +482,16 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                         }
                     except Exception as e:
                         print(f"Error processing tool call: {e}")
+                        raise e
+                else:
+                    raise Exception(f"Unknown tool call: {tool_call}")
         
         # Automatically proceed to content editing
         return "user_edits_content"
     
     @router(generate_content_drafts)
     async def user_edits_content(self):
+        logger.info("Entered user_edits_content")
         """
         Automated: Apply any post-processing to content and proceed to save.
         """
@@ -541,6 +507,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
     
     @router(user_edits_content)
     async def save_to_database(self):
+        logger.info("Entered save_to_database")
         """
         Save the final content to the database.
         Inserts a record into the content table.
@@ -555,7 +522,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             # Check if insert was successful
             if content_id == -1:
                 # Database operation failed but we can continue
+                self.state.messages = sanitize_all_messages(self.state.messages)
                 await copilotkit_emit_state({
+                    **self.state,
                     "status": "Database not available. Content generated but not saved."
                 })
             else:
@@ -563,7 +532,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                 self.state.content_record["id"] = content_id
                 
                 # Emit state update with success message
+                self.state.messages = sanitize_all_messages(self.state.messages)
                 await copilotkit_emit_state({
+                    **self.state,
                     "status": f"Content saved to database with ID: {content_id}"
                 })
             
@@ -574,18 +545,30 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             self.state.error = str(e)
             
             # Emit state update with error message
+            self.state.messages = sanitize_all_messages(self.state.messages)
             await copilotkit_emit_state({
+                **self.state,
                 "status": f"Database error: {str(e)}"
             })
+            raise e
             
             # Still proceed to complete the flow
             return "flow_complete"
     
     @listen("flow_complete")
     async def flow_complete(self):
-        """End the flow."""
-        # Cleanup and complete
-        pass
+        # Optionally, you can log or print for debugging
+        print("FLOW COMPLETE CALLED")
+
+        # 1. Emit the final state (this will send the blog post to the frontend)
+        self.state.messages = sanitize_all_messages(self.state.messages)
+        await copilotkit_emit_state(self.state)
+
+        # 2. Explicitly exit the agent loop (recommended for clean session end)
+        await copilotkit_exit()
+
+        # 3. Do not return anything (or return None)
+        return None
 
 # Tool handlers
 def fetch_github_data_handler(args):
@@ -615,8 +598,35 @@ def fetch_github_data_handler(args):
         return json.dumps(result)
     
     except Exception as e:
+        raise e
         return f"Error: {str(e)}"
 
 tool_handlers = {
     "fetch_github_data": fetch_github_data_handler
 }
+
+def sanitize_tool_call_arguments(message):
+    """
+    For each tool call in the message, ensure the arguments field is a valid JSON object (as a string).
+    If not, extract the first JSON object using regex.
+    """
+    if "tool_calls" in message:
+        for tool_call in message["tool_calls"]:
+            args_str = tool_call["function"]["arguments"]
+            try:
+                # Try to parse as is
+                json.loads(args_str)
+            except json.JSONDecodeError:
+                # Extract first {...} block
+                match = re.search(r'\{.*?\}', args_str, re.DOTALL)
+                if match:
+                    clean_json = match.group(0)
+                    tool_call["function"]["arguments"] = clean_json
+                else:
+                    # If no valid JSON, set to empty object
+                    tool_call["function"]["arguments"] = "{}"
+    return message
+
+# Utility to sanitize all messages in a list
+def sanitize_all_messages(messages):
+    return [sanitize_tool_call_arguments(m) for m in messages]

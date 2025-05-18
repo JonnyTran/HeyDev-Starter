@@ -1,5 +1,6 @@
 """
 DevRel publishing agent that generates content from GitHub repo changes.
+Standalone version without CopilotKit dependencies.
 """
 
 import json
@@ -15,13 +16,6 @@ import requests
 from dotenv import load_dotenv
 from litellm import completion
 from crewai.flow.flow import Flow, start, router, listen
-
-from copilotkit.crewai import (
-    copilotkit_stream, 
-    copilotkit_predict_state,
-    copilotkit_emit_state,
-    CopilotKitState
-)
 
 # Load environment variables
 load_dotenv()
@@ -146,44 +140,48 @@ def github_api_request(endpoint: str, params: Dict = None) -> Dict:
     
     return response.json()
 
-class DevRelAgentState():
+class DevRelAgentState:
     """
     State definition for the DevRel Publisher Agent.
     Tracks all data through the content generation process.
     """
-    # GitHub Repository Data
-    repo_url: str = ""
-    start_date: str = ""
-    
-    # Analysis Data
-    commits: List[Dict] = []
-    issues: List[Dict] = []
-    pull_requests: List[Dict] = []
-    docs_changes: List[Dict] = []
-    
-    # Generated Topics
-    topics: List[Dict] = []
-    selected_topic: Dict = {}
-    
-    # Content Generation
-    content_drafts: Dict[str, str] = {
-        "blog_post": "",
-        "code_example": "",
-        "social_media": ""
-    }
-    
-    # Database Record
-    content_record: Dict[str, str] = {
-        "channel": "",
-        "title": "",
-        "summary": "",
-        "content": "",
-        "type": ""
-    }
-    
-    # Status and errors
-    status: str = ""
-    error: str = ""
+    def __init__(self):
+        # GitHub Repository Data
+        self.repo_url = ""
+        self.start_date = ""
+        
+        # Analysis Data
+        self.commits = []
+        self.issues = []
+        self.pull_requests = []
+        self.docs_changes = []
+        
+        # Generated Topics
+        self.topics = []
+        self.selected_topic = {}
+        
+        # Content Generation
+        self.content_drafts = {
+            "blog_post": "",
+            "code_example": "",
+            "social_media": ""
+        }
+        
+        # Database Record
+        self.content_record = {
+            "channel": "",
+            "title": "",
+            "summary": "",
+            "content": "",
+            "type": ""
+        }
+        
+        # Status and errors
+        self.status = ""
+        self.error = ""
+        
+        # For tracking messages
+        self.messages = []
 
 class DevRelPublisherFlow(Flow[DevRelAgentState]):
     """
@@ -195,14 +193,16 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
     async def input_github_repo(self):
         """Entry point: Collect GitHub repository URL."""
         # This node will be called first and waits for user input
-        # The state will be updated directly from frontend actions
+        # For standalone mode, we can pre-set these values
+        return "select_date_range"
     
     @router(input_github_repo)
     async def select_date_range(self):
         """User selects date range for repository analysis."""
-        # This node transitions when user has provided both repo URL and start date
+        # In standalone mode, use pre-defined values
         self.state.repo_url = "https://github.com/crewaiinc/crewai"
         self.state.start_date = "2025-05-10"
+        print(f"Starting analysis for {self.state.repo_url} from {self.state.start_date}")
         if self.state.repo_url and self.state.start_date:
             return "analyze_repository"
         return "input_github_repo"
@@ -222,29 +222,23 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             # Extract owner and repo from URL
             owner, repo = extract_repo_info(self.state.repo_url)
             
-            # Emit state update to show progress
-            # await copilotkit_emit_state({
-            #     "status": "Analyzing repository..."
-            # })
+            # Show progress
+            print("Analyzing repository...")
             
             # Fetch commits
             commits_endpoint = f"repos/{owner}/{repo}/commits"
             commits_params = {"since": f"{self.state.start_date}T00:00:00Z"}
             self.state.commits = github_api_request(commits_endpoint, commits_params)
             
-            # Emit progress update
-            # await copilotkit_emit_state({
-            #     "status": f"Found {len(self.state.commits)} commits"
-            # })
+            # Show progress
+            print(f"Found {len(self.state.commits)} commits")
             
             # Fetch issues
             issues_endpoint = f"repos/{owner}/{repo}/issues"
             issues_params = {"state": "all", "since": f"{self.state.start_date}T00:00:00Z"}
             self.state.issues = github_api_request(issues_endpoint, issues_params)
             
-            # await copilotkit_emit_state({
-            #     "status": f"Found {len(self.state.issues)} issues"
-            # })
+            print(f"Found {len(self.state.issues)} issues")
             
             # Fetch pull requests
             prs_endpoint = f"repos/{owner}/{repo}/pulls"
@@ -254,9 +248,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                 if datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ") >= datetime.strptime(self.state.start_date, "%Y-%m-%d")
             ]
             
-            # await copilotkit_emit_state({
-            #     "status": f"Found {len(self.state.pull_requests)} pull requests"
-            # })
+            print(f"Found {len(self.state.pull_requests)} pull requests")
             
             # Check for documentation changes
             docs_changes = []
@@ -275,9 +267,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             
             self.state.docs_changes = docs_changes
             
-            # await copilotkit_emit_state({
-            #     "status": f"Found {len(self.state.docs_changes)} documentation changes"
-            # })
+            print(f"Found {len(self.state.docs_changes)} documentation changes")
             
             # If we have data, proceed to generate topics
             if (self.state.commits or self.state.issues or 
@@ -290,6 +280,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         except Exception as e:
             # Handle errors
             self.state.error = str(e)
+            print(f"Error analyzing repository: {str(e)}")
             return "input_github_repo"
     
     @router(analyze_repository)
@@ -312,54 +303,46 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         Use the generate_topic tool for each topic you create.
         """
         
-        # Use predictive state updates to show topics being generated
-        # await copilotkit_predict_state({
-        #     "topics": {
-        #         "tool_name": "generate_topic",
-        #         "tool_argument": "title"
-        #     }
-        # })
+        print("Generating content topics...")
         
         # Use AI to analyze the data and generate topics
-        response = await copilotkit_stream(
-            completion(
-                model="openai/gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"""
-                        Here's the GitHub repository data to analyze:
-                        
-                        Commits: {json.dumps([{
-                            "sha": c["sha"],
-                            "message": c["commit"]["message"],
-                            "date": c["commit"]["author"]["date"]
-                        } for c in self.state.commits[:10]])}
-                        
-                        Issues: {json.dumps([{
-                            "number": i["number"],
-                            "title": i["title"],
-                            "state": i["state"],
-                            "created_at": i["created_at"]
-                        } for i in self.state.issues[:10]])}
-                        
-                        Pull Requests: {json.dumps([{
-                            "number": p["number"],
-                            "title": p["title"],
-                            "state": p["state"],
-                            "created_at": p["created_at"]
-                        } for p in self.state.pull_requests[:10]])}
-                        
-                        Doc Changes: {json.dumps([{
-                            "commit_message": d["commit"]["commit"]["message"],
-                            "files": [f["filename"] for f in d["doc_files"]]
-                        } for d in self.state.docs_changes[:10]])}
-                        
-                        Generate 5 compelling content topics based on this data.
-                    """}
-                ],
-                tools=[GENERATE_TOPIC_TOOL],
-                stream=True
-            )
+        response = await completion(
+            model="openai/gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"""
+                    Here's the GitHub repository data to analyze:
+                    
+                    Commits: {json.dumps([{
+                        "sha": c["sha"],
+                        "message": c["commit"]["message"],
+                        "date": c["commit"]["author"]["date"]
+                    } for c in self.state.commits[:10]])}
+                    
+                    Issues: {json.dumps([{
+                        "number": i["number"],
+                        "title": i["title"],
+                        "state": i["state"],
+                        "created_at": i["created_at"]
+                    } for i in self.state.issues[:10]])}
+                    
+                    Pull Requests: {json.dumps([{
+                        "number": p["number"],
+                        "title": p["title"],
+                        "state": p["state"],
+                        "created_at": p["created_at"]
+                    } for p in self.state.pull_requests[:10]])}
+                    
+                    Doc Changes: {json.dumps([{
+                        "commit_message": d["commit"]["commit"]["message"],
+                        "files": [f["filename"] for f in d["doc_files"]]
+                    } for d in self.state.docs_changes[:10]])}
+                    
+                    Generate 5 compelling content topics based on this data.
+                """}
+            ],
+            tools=[GENERATE_TOPIC_TOOL],
+            stream=False
         )
         
         message = response.choices[0].message
@@ -382,6 +365,7 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                             clean_json = arguments_str[start:end]
                             topic_data = json.loads(clean_json)
                             self.state.topics.append(topic_data)
+                            print(f"Generated topic: {topic_data['title']}")
                         else:
                             # Fallback if we can't extract valid JSON
                             print(f"Warning: Could not extract valid JSON from: {arguments_str}")
@@ -390,28 +374,13 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                     except Exception as e:
                         print(f"Error processing tool call: {e}")
         
-        # If we have topics, proceed to user selection
-        # if self.state.topics:
-        #     return "user_selects_topic"
+        # If we have topics, proceed to content generation
+        if self.state.topics:
+            return "generate_content_drafts"
         
         # If no topics were generated, retry
+        print("No topics generated, retrying...")
         return "generate_topics"
-    
-    # @router(generate_topics)
-    # async def user_selects_topic(self):
-    #     """
-    #     Human-in-the-loop: User selects a topic.
-    #     This node transitions when user makes a selection.
-    #     """
-    #     # This node represents the state where the frontend displays topics
-    #     # and waits for user selection
-        
-    #     # Check if user has selected a topic (will be set via frontend action)
-    #     if self.state.selected_topic:
-    #         return "generate_content_drafts"
-            
-    #     # Otherwise remain in this state
-    #     return "user_selects_topic"
     
     @router(generate_topics)
     async def generate_content_drafts(self):
@@ -428,18 +397,14 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         Use the write_content tool to submit your draft.
         """
         
-        # Use predictive state updates to show content being generated
-        await copilotkit_predict_state({
-            "content_drafts": {
-                "tool_name": "write_content",
-                "tool_argument": "content"
-            }
-        })
+        print("Generating content draft...")
         
         # Get which content type to generate
-        print(f"Full state: {self.state}")
         self.state.selected_topic = self.state.topics[0]
         content_type = self.state.selected_topic.get("content_types", ["blog_post"])[0]
+        
+        print(f"Selected topic: {self.state.selected_topic['title']}")
+        print(f"Generating content type: {content_type}")
         
         # Context from repository data
         context = {}
@@ -454,25 +419,23 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             context = next((p for p in self.state.pull_requests if str(p["number"]) == source_id), {})
         
         # Generate the content draft
-        response = await copilotkit_stream(
-            completion(
-                model="openai/gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"""
-                        Topic: {self.state.selected_topic['title']}
-                        Description: {self.state.selected_topic['description']}
-                        Content Type: {content_type}
-                        
-                        Additional Context:
-                        {json.dumps(context)}
-                        
-                        Please create an engaging {content_type} about this topic.
-                    """}
-                ],
-                tools=[*self.state.copilotkit.actions, WRITE_CONTENT_TOOL],
-                stream=True
-            )
+        response = await completion(
+            model="openai/gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"""
+                    Topic: {self.state.selected_topic['title']}
+                    Description: {self.state.selected_topic['description']}
+                    Content Type: {content_type}
+                    
+                    Additional Context:
+                    {json.dumps(context)}
+                    
+                    Please create an engaging {content_type} about this topic.
+                """}
+            ],
+            tools=[WRITE_CONTENT_TOOL],
+            stream=False
         )
         
         message = response.choices[0].message
@@ -505,6 +468,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                                 "content": content_data.get("content", ""),
                                 "type": content_type
                             }
+                            
+                            print(f"Generated content: {content_data.get('title')}")
+                            print(f"Summary: {content_data.get('summary')}")
                         else:
                             # Fallback if we can't extract valid JSON
                             print(f"Warning: Could not extract valid JSON from: {arguments_str}")
@@ -513,25 +479,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                     except Exception as e:
                         print(f"Error processing tool call: {e}")
         
-        return "user_edits_content"
+        return "save_to_database"
     
     @router(generate_content_drafts)
-    async def user_edits_content(self):
-        """
-        Human-in-the-loop: User edits the generated content.
-        This node transitions when user confirms content is ready.
-        """
-        # This represents the state where frontend displays the content editor
-        # The content_record will be updated directly from frontend
-        
-        # Check if user has confirmed edits
-        if "confirmed" in self.state.copilotkit.metadata:
-            return "save_to_database"
-            
-        # Otherwise remain in this state
-        return "user_edits_content"
-    
-    @router(user_edits_content)
     async def save_to_database(self):
         """
         Save the final content to the database.
@@ -541,35 +491,34 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             # Use the database helper module to insert content
             from sample_agent.db import insert_content
             
+            print("Saving content to database...")
+            
             # Insert the content record and get the ID
             content_id = insert_content(self.state.content_record)
             
             # Update state with the new ID
             self.state.content_record["id"] = content_id
             
-            # Emit state update with success message
-            await copilotkit_emit_state({
-                "status": f"Content saved to database with ID: {content_id}"
-            })
+            print(f"Content saved with ID: {content_id}")
             
             return "flow_complete"
             
         except Exception as e:
             # Handle database errors
             self.state.error = str(e)
+            print(f"Database error: {str(e)}")
             
-            # Emit state update with error message
-            await copilotkit_emit_state({
-                "status": f"Database error: {str(e)}"
-            })
-            
-            return "user_edits_content"
+            return "flow_complete"
     
     @listen("flow_complete")
     async def flow_complete(self):
         """End the flow."""
-        # Cleanup and complete
-        pass
+        print("Flow complete!")
+        print(f"Content title: {self.state.content_record['title']}")
+        print(f"Content summary: {self.state.content_record['summary']}")
+        print("\nContent preview:")
+        print(self.state.content_record['content'][:500] + "...")
+        print("\nDone!")
 
 # Tool handlers
 def fetch_github_data_handler(args):
@@ -597,16 +546,16 @@ def fetch_github_data_handler(args):
             result["pull_requests"] = github_api_request(prs_endpoint, prs_params)
         
         return json.dumps(result)
-    
     except Exception as e:
-        return f"Error: {str(e)}"
+        return json.dumps({"error": str(e)})
 
-tool_handlers = {
-    "fetch_github_data": fetch_github_data_handler
-}
-
-
+# Main entry point for standalone execution
+# async def run_flow():
+#     """Run the flow as a standalone process."""
+    
 
 if __name__ == "__main__":
     flow = DevRelPublisherFlow()
+    # flow.state = DevRelAgentState()
+    # await flow.start_flow()
     flow.kickoff()

@@ -102,7 +102,7 @@ WRITE_CONTENT_TOOL = {
     "type": "function",
     "function": {
         "name": "write_content",
-        "description": "Generate content based on the selected topic",
+        "description": "Generate a blog post based on the selected topic",
         "parameters": {
             "type": "object",
             "properties": {
@@ -381,7 +381,8 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
         You are a DevRel content creator writing about technical topics.
         Create professional, engaging content for the selected topic.
         Generate content that clearly explains the technical details while
-        keeping it accessible to the target audience.
+        keeping it accessible to the target audience. Include at least one 
+        code snippet to demonstrate examples.
         
         Use the write_content tool to submit your draft.
         """
@@ -523,8 +524,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             if content_id == -1:
                 # Database operation failed but we can continue
                 self.state.messages = sanitize_all_messages(self.state.messages)
+                state_dict = self.state.__dict__ if hasattr(self.state, "__dict__") else dict(self.state)
                 await copilotkit_emit_state({
-                    **self.state,
+                    **state_dict,
                     "status": "Database not available. Content generated but not saved."
                 })
             else:
@@ -533,8 +535,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
                 
                 # Emit state update with success message
                 self.state.messages = sanitize_all_messages(self.state.messages)
+                state_dict = self.state.__dict__ if hasattr(self.state, "__dict__") else dict(self.state)
                 await copilotkit_emit_state({
-                    **self.state,
+                    **state_dict,
                     "status": f"Content saved to database with ID: {content_id}"
                 })
             
@@ -546,8 +549,9 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
             
             # Emit state update with error message
             self.state.messages = sanitize_all_messages(self.state.messages)
+            state_dict = self.state.__dict__ if hasattr(self.state, "__dict__") else dict(self.state)
             await copilotkit_emit_state({
-                **self.state,
+                **state_dict,
                 "status": f"Database error: {str(e)}"
             })
             raise e
@@ -562,7 +566,8 @@ class DevRelPublisherFlow(Flow[DevRelAgentState]):
 
         # 1. Emit the final state (this will send the blog post to the frontend)
         self.state.messages = sanitize_all_messages(self.state.messages)
-        await copilotkit_emit_state(self.state)
+        state_dict = self.state.__dict__ if hasattr(self.state, "__dict__") else dict(self.state)
+        await copilotkit_emit_state(state_dict)
 
         # 2. Explicitly exit the agent loop (recommended for clean session end)
         await copilotkit_exit()
